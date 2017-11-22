@@ -1,0 +1,13 @@
+= Word stock
+
+Tool for extracting data for words from Wiktionary dumps.
+The idea is to create somewhat language independent tool for parsing this data, because there is very few available datasets for non-very-popular languages, like Czech.
+
+== Current status
+
+I need the data for Czech words for a school project.
+At the moment, Czech parser is hardcoded.
+
+== TODO
+
+* Make parsers modular and implement one for English.
