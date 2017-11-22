@@ -2,7 +2,12 @@ const fetch = require('node-fetch');
 const fs = require('fs');
 const decompress = require('decompress');
 const decompressBzip2 = require('decompress-bzip2');
+const xml2js = require('xml2js');
+var wtf = require('wtf_wikipedia')
+const _ = require('lodash')
+const json2csv = require('json2csv');
 
+const parser = new xml2js.Parser();
 const languages = ['cs'];
 
 const createTempPath = (lang) => `./temp/${lang}.xml.bz2`;
@@ -23,9 +28,12 @@ const writeFile = function (path, buffer, permission) {
   }
 }
 
-if (!fs.existsSync('temp')) {
-  fs.mkdirSync('temp');
-}
+const folders = ['temp', 'out'];
+folders.map(folder => {
+  if (!fs.existsSync(folder)) {
+    fs.mkdirSync(folder);
+  }
+})
 
 const languagesToDownload = languages.filter(lang => {
   try {
@@ -90,7 +98,84 @@ const extractDumps = () => {
 }
 
 
+const processResult = (result) => {
+  const describeWord = (sections) => {
+    const posOptions = [
+      'podstatné jméno',
+      'přídavné jméno',
+      'zájmeno',
+      'číslovka',
+      'sloveso',
+      'příslovce',
+      'předložka',
+      'spojka',
+      'částice',
+      'citoslovce',
+    ]
+    const pos = _.uniq(sections
+      .filter(sec => posOptions.includes(sec.title))
+      .map(sec => sec.title))
+      .join(', ');
+    const hyphenation = _.get(
+      _.find(sections, { title: 'dělení' }),
+      'sentences.0.text',
+      ''
+    ).replace('* ', '');
+    const ethymology = _.get(
+      _.find(sections, { title: 'etymologie' }),
+      'sentences',
+      []
+    )
+      .map(s => s.text)
+      .join(' ');
+    const meaning = _.get(
+      _.find(sections, { title: 'význam' }),
+      'lists.0',
+      []
+    )
+      .map(s => s.text)
+      .join(' ');
+    return {
+      pos,
+      hyphenation,
+      ethymology,
+      meaning,
+    }
+  }
+  const getText = (page) => page.revision[0].text[0]._;
+  const pages = result.mediawiki.page;
+  const page = pages[0];
+  return pages
+    .map(page => ({
+      title: _.get(page, 'title.0'),
+      text: getText(page),
+      sections: wtf.parse(getText(page)).sections,
+    }))
+    .filter(page => page.title && page.text && page.sections && page.sections.length)
+    .map(page => ({
+      title: page.title,
+      description: describeWord(page.sections, page.text),
+    }))
+    .filter(page => _.values(page.description).some(v => v != ''))
+    .map(page => ({title: page.title, ...page.description}));
+}
+
 downloadDumps()
-.then(() => {
-  return extractDumps();
-})
+  .then(() => {
+    return extractDumps();
+  })
+  .then(() => {
+    languages.map(lang => {
+      fs.readFile(`temp/${lang}.xml`, function (err, data) {
+        parser.parseString(data, function (err, result) {
+          const processed = processResult(result);
+          fs.writeFile(`out/${lang}.json`, JSON.stringify(processed), function (err) {
+            if (err) {
+              return console.log(err);
+            }
+            console.log(`The file for ${lang} was saved!`);
+          });
+        });
+      });
+    })
+  })
